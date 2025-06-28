@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 
@@ -36,6 +37,10 @@ type PictureData struct {
 	Basename     string   `json:"basename"`
 	ItemID       string   `json:"itemid"`
 	Resolution   string   `json:"resolution"`
+}
+type ItemInterface interface {
+	koi.ItemInterface
+	AddDatum(ctx context.Context, client koi.Client, datumType string, Label string, Value string) (*koi.Datum, error)
 }
 
 func structToKVold(v interface{}) ([]struct {

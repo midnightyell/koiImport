@@ -23,30 +23,34 @@ var pass = "Passw0rd"
 var target = "http://192.168.30.129"
 
 // args holds command-line arguments
-type args struct {
+type cliargs struct {
 	deleteFlag bool
 	itemsDir   string
 	collection string
+	user       string
+	pass       string
+	target     string
 }
+
+var args cliargs
 
 func main() {
 	// Define and parse command-line flags
-	args := args{}
+	//args := args{}
 	flag.BoolVar(&args.deleteFlag, "delete", false, "Delete all data from the server")
 	//flag.StringVar(&args.itemsDir, "itemsdir", "../dyn/items", "Directory to read items from")
 	flag.StringVar(&args.itemsDir, "itemsdir", "", "Directory to read items from")
 	flag.StringVar(&args.collection, "collection", "maps", "Collection to use for items")
-
+	flag.StringVar(&user, "user", user, "Username for authentication")
+	flag.StringVar(&pass, "pass", pass, "Password for authentication")
+	flag.StringVar(&target, "target", target, "Target URL of the Koi server")
 	flag.Parse()
 
 	if args.collection != "" {
 		args.collection = cases.Title(language.English, cases.Compact).String(args.collection)
 	}
 
-	// Initialize context
 	ctx := context.Background()
-
-	// Create a new client
 	client := koi.NewHTTPClient(target, 30*time.Second)
 	_, err := client.CheckLogin(ctx, user, pass)
 	if err != nil {
@@ -64,12 +68,8 @@ func main() {
 		fmt.Println("All data deleted successfully")
 		return
 	}
-	collection, err := findOrCreateCollection(ctx, client, args.collection)
-	if err != nil {
-		fmt.Printf("Failed to find or create '%s' collection: %v\n", args.collection, err)
-		return
-	}
-	fmt.Printf("Using collection: %s (ID: %s)\n", collection.Title, collection.ID)
+
+	// todo check for more than 1 match
 
 	// If itemsDir is provided, process items
 	if args.itemsDir != "" {
@@ -80,21 +80,158 @@ func main() {
 		}
 		fmt.Printf("Items processed successfully from directory: %s\n", args.itemsDir)
 		fmt.Printf("Total items decoded: %d\n", len(items))
-		IRI := collection.IRI() // Set the collection IRI for each item
 		for i, item := range items {
 			fmt.Printf("Item %d: ID=%s, Name=%s\n", i+1, item.ID, item.Name)
-			item.Collection = &IRI // Set the collection ID for each item
-			_, err = item.Create(ctx, client)
-			if err != nil {
-				fmt.Printf("Failed to create item %s: %v\n", item.Name, err)
-				client.PrintError(ctx) // Print error details
-				continue
-			}
 		}
 	} else {
 		fmt.Println("No items directory provided, skipping item processing")
 	}
 
+}
+
+func processItem(ctx context.Context, client koi.Client, item *Item) error {
+
+	fmt.Printf("Processing item: ID=%s, Name=%s\n", item.ID, item.Name)
+	collection, err := findOrCreateCollection(ctx, client, args.collection)
+	if item.Collection == nil {
+		iri := collection.IRI()
+		item.Collection = &iri
+	}
+	fmt.Printf("Using collection: %s (ID: %s)\n", collection.Title, collection.ID)
+
+	_, err = item.Create(ctx, client)
+	if err != nil {
+		fmt.Printf("Failed to create item %s: %v\n", item.Name, err)
+		client.PrintError(ctx) // Print error details
+		return err
+	}
+	if item.URL != "" {
+		// If item has a URL, add it as a datum
+		_, err = item.AddDatum(ctx, client, koi.DatumTypeLink, "URL", item.URL)
+		if err != nil {
+			fmt.Printf("Failed to add URL datum for item %s: %v\n", item.Name, err)
+			client.PrintError(ctx) // Print error details
+			return err
+		}
+	}
+	if item.EbayID != "" {
+		// If item has an eBay ID, add it as a datum
+		_, err = item.AddDatum(ctx, client, koi.DatumTypeText, "eBay ID", item.EbayID)
+		if err != nil {
+			fmt.Printf("Failed to add eBay ID datum for item %s: %v\n", item.Name, err)
+			client.PrintError(ctx) // Print error details
+			return err
+		}
+	}
+	if item.PriceOriginal != "" {
+		// If item has an original price, add it as a datum
+		_, err = item.AddDatum(ctx, client, koi.DatumTypeText, "Original Price", item.PriceOriginal)
+		if err != nil {
+			fmt.Printf("Failed to add original price datum for item %s: %v\n", item.Name, err)
+			client.PrintError(ctx) // Print error details
+			return err
+		}
+	}
+	if item.SellerName != "" {
+		// If item has a seller name, add it as a datum
+		_, err = item.AddDatum(ctx, client, koi.DatumTypeText, "Seller Name", item.SellerName)
+		if err != nil {
+			fmt.Printf("Failed to add seller name datum for item %s: %v\n", item.Name, err)
+			client.PrintError(ctx) // Print error details
+			return err
+		}
+	}
+	if item.SellerURL != "" {
+		// If item has a seller URL, add it as a datum
+		_, err = item.AddDatum(ctx, client, koi.DatumTypeText, "Seller URL", item.SellerURL)
+		if err != nil {
+			fmt.Printf("Failed to add seller URL datum for item %s: %v\n", item.Name, err)
+			client.PrintError(ctx) // Print error details
+			return err
+		}
+	}
+	if item.DescriptionText != "" {
+		// If item has a description text, add it as a datum
+		_, err = item.AddDatum(ctx, client, koi.DatumTypeTextarea, "Description Text", item.DescriptionText)
+		if err != nil {
+			fmt.Printf("Failed to add description text datum for item %s: %v\n", item.Name, err)
+			client.PrintError(ctx) // Print error details
+			return err
+		}
+	}
+	for _, feature := range item.Features {
+		for _, key := range feature {
+			value := string(feature[key])
+			if string(key) != "" && value != "" {
+				if len(value) > 50 {
+					_, err = item.AddDatum(ctx, client, koi.DatumTypeTextarea, string(key), value)
+				} else {
+					_, err = item.AddDatum(ctx, client, koi.DatumTypeText, string(key), value)
+				}
+				if err != nil {
+					fmt.Printf("Failed to add feature datum for item %s feature %s: %v\n", item.Name, string(key), err)
+					client.PrintError(ctx) // Print error details
+					return err
+				}
+			}
+		}
+	}
+	for idx, pic := range item.PictureData {
+		// If item has picture data, add each as a datum
+		if pic.Filename != "" {
+			_, err = item.AddDatum(ctx, client, koi.DatumTypeImage, fmt.Sprintf("Picture %d", idx+1), pic.Filename)
+
+			if err != nil {
+				fmt.Printf("Failed to add picture datum for item %s: %v\n", item.Name, err)
+				client.PrintError(ctx) // Print error details
+				return err
+			}
+		}
+	}
+	_, err = item.UploadImageByFile(ctx, client, item.PictureData[item.PhotoIndex].Filename, item.ID)
+	if err != nil {
+		fmt.Printf("Failed to upload image for item %s: %v\n", item.Name, err)
+		client.PrintError(ctx)
+		return err
+	}
+	fmt.Printf("Successfully processed item %s with ID %s\n", item.Name, item.ID)
+	return nil
+}
+
+func (item *Item) AddDatum(ctx context.Context, client koi.Client, datumType string, Label string, Value string) (*koi.Datum, error) {
+	iri := item.IRI()
+	var d koi.Datum = koi.Datum{
+		Item:  &iri,
+		Type:  datumType,
+		Label: Label,
+	}
+	datum, err := d.Create(ctx, client)
+	if err != nil {
+		fmt.Printf("Failed to create datum for item %s: %v\n", item.Name, err)
+		client.PrintError(ctx) // Print error details
+		return nil, err
+	}
+
+	switch datumType {
+	case koi.DatumTypeVideo:
+		datum, err = datum.UploadVideoByFile(ctx, client, "", datum.ID)
+	case koi.DatumTypeFile:
+		datum, err = datum.UploadFileByFile(ctx, client, Value, datum.ID)
+	case koi.DatumTypeImage:
+		datum, err = datum.UploadImageByFile(ctx, client, Value, datum.ID)
+	case koi.DatumTypeSign:
+		datum, err = datum.UploadFileByFile(ctx, client, Value, datum.ID)
+	default:
+		datum.Value = &Value
+		datum, err = datum.Update(ctx, client)
+	}
+	if err != nil {
+		fmt.Printf("Failed to upload datum for item %s: %v\n", item.Name, err)
+		client.PrintError(ctx) // Print error details
+		return nil, err
+	}
+	fmt.Printf("Successfully added datum to item %s: %s\n", item.Name, datum.ID)
+	return datum, nil
 }
 
 // processJSONFiles iterates through subdirectories in dir, decodes S/S.json into Item structs.
@@ -144,6 +281,7 @@ func processJSONFiles(dir string) ([]*Item, error) {
 		if err == nil {
 			item.PhotoIndex = val
 		}
+
 		items = append(items, &item)
 		return nil
 	})
