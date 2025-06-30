@@ -41,9 +41,9 @@ func main() {
 	//flag.StringVar(&args.itemsDir, "itemsdir", "../dyn/items", "Directory to read items from")
 	flag.StringVar(&args.itemsDir, "itemsdir", "", "Directory to read items from")
 	flag.StringVar(&args.collection, "collection", "maps", "Collection to use for items")
-	flag.StringVar(&user, "user", user, "Username for authentication")
-	flag.StringVar(&pass, "pass", pass, "Password for authentication")
-	flag.StringVar(&target, "target", target, "Target URL of the Koi server")
+	flag.StringVar(&args.user, "user", user, "Username for authentication")
+	flag.StringVar(&args.pass, "pass", pass, "Password for authentication")
+	flag.StringVar(&args.target, "target", target, "Target URL of the Koi server")
 	flag.Parse()
 
 	if args.collection != "" {
@@ -51,8 +51,8 @@ func main() {
 	}
 
 	ctx := context.Background()
-	client := koi.NewHTTPClient(target, 30*time.Second)
-	_, err := client.CheckLogin(ctx, user, pass)
+	client := koi.NewHTTPClient(args.target, 30*time.Second)
+	_, err := client.CheckLogin(ctx, args.user, args.pass)
 	if err != nil {
 		fmt.Printf("Login failed: %v\n", err)
 		return
@@ -70,7 +70,6 @@ func main() {
 	}
 
 	// todo check for more than 1 match
-
 	// If itemsDir is provided, process items
 	if args.itemsDir != "" {
 		items, err := processJSONFiles(args.itemsDir)
@@ -82,6 +81,18 @@ func main() {
 		fmt.Printf("Total items decoded: %d\n", len(items))
 		for i, item := range items {
 			fmt.Printf("Item %d: ID=%s, Name=%s\n", i+1, item.ID, item.Name)
+		}
+
+		for _, item := range items {
+			if item == nil {
+				fmt.Println("Skipping nil item")
+				continue
+			}
+			err := processItem(ctx, client, item)
+			if err != nil {
+				fmt.Printf("Error processing item %s: %v\n", item.Name, err)
+				continue
+			}
 		}
 	} else {
 		fmt.Println("No items directory provided, skipping item processing")
@@ -99,12 +110,15 @@ func processItem(ctx context.Context, client koi.Client, item *Item) error {
 	}
 	fmt.Printf("Using collection: %s (ID: %s)\n", collection.Title, collection.ID)
 
-	_, err = item.Create(ctx, client)
+	createdItem, err := item.Create(ctx, client)
 	if err != nil {
 		fmt.Printf("Failed to create item %s: %v\n", item.Name, err)
 		client.PrintError(ctx) // Print error details
 		return err
 	}
+	item.Item = *createdItem // Update the local item with the created item
+
+	// Optionally, update fields of your local item from createdItem if needed
 	if item.URL != "" {
 		// If item has a URL, add it as a datum
 		_, err = item.AddDatum(ctx, client, koi.DatumTypeLink, "URL", item.URL)
@@ -201,9 +215,9 @@ func processItem(ctx context.Context, client koi.Client, item *Item) error {
 func (item *Item) AddDatum(ctx context.Context, client koi.Client, datumType string, Label string, Value string) (*koi.Datum, error) {
 	iri := item.IRI()
 	var d koi.Datum = koi.Datum{
-		Item:  &iri,
-		Type:  datumType,
-		Label: Label,
+		Item:      &iri,
+		DatumType: datumType,
+		Label:     Label,
 	}
 	datum, err := d.Create(ctx, client)
 	if err != nil {
@@ -309,7 +323,7 @@ func findOrCreateCollection(ctx context.Context, client koi.Client, collectionNa
 
 		// Check each collection for "maps"
 		for _, collection := range collections {
-			if strings.ToLower(collection.Title) == collectionName {
+			if strings.ToLower(collection.Title) == strings.ToLower(collectionName) {
 				return collection, nil
 			}
 		}
