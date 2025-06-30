@@ -18,13 +18,13 @@ type Item struct {
 	DescriptionURL  string        `json:"description_url"`
 	DescriptionText string        `json:"description_text"`
 	DescriptionHTML string        `json:"description_html"`
-	Features        Features      `json:"features"`
+	Features        Feature       `json:"features"`
 	PictureData     []PictureData `json:"picture_data"`
 	Skip            bool          `json:"skip"`
 	PhotoIndex      int           `json:"photo_index"`
 }
 
-type Features map[string]string
+type Feature map[string]string
 
 type PictureData struct {
 	OriginalURLs []string `json:"original_URLs"`

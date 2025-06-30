@@ -21,6 +21,7 @@ import (
 var user = "user"
 var pass = "Passw0rd"
 var target = "http://192.168.30.129"
+var myCollection koi.Collection
 
 // args holds command-line arguments
 type cliargs struct {
@@ -88,10 +89,10 @@ func main() {
 				fmt.Println("Skipping nil item")
 				continue
 			}
-			err := processItem(ctx, client, item)
+			err := addItemToKoi(ctx, client, item)
 			if err != nil {
 				fmt.Printf("Error processing item %s: %v\n", item.Name, err)
-				continue
+				break
 			}
 		}
 	} else {
@@ -100,9 +101,9 @@ func main() {
 
 }
 
-func processItem(ctx context.Context, client koi.Client, item *Item) error {
+func addItemToKoi(ctx context.Context, client koi.Client, item *Item) error {
 
-	fmt.Printf("Processing item: ID=%s, Name=%s\n", item.ID, item.Name)
+	fmt.Printf("Adding item to koi: EbayID=%s, Name=%s\n", item.EbayID, item.Name)
 	collection, err := findOrCreateCollection(ctx, client, args.collection)
 	if item.Collection == nil {
 		iri := collection.IRI()
@@ -173,42 +174,40 @@ func processItem(ctx context.Context, client koi.Client, item *Item) error {
 			return err
 		}
 	}
-	for _, feature := range item.Features {
-		for _, key := range feature {
-			value := string(feature[key])
-			if string(key) != "" && value != "" {
-				if len(value) > 50 {
-					_, err = item.AddDatum(ctx, client, koi.DatumTypeTextarea, string(key), value)
-				} else {
-					_, err = item.AddDatum(ctx, client, koi.DatumTypeText, string(key), value)
-				}
-				if err != nil {
-					fmt.Printf("Failed to add feature datum for item %s feature %s: %v\n", item.Name, string(key), err)
-					client.PrintError(ctx) // Print error details
-					return err
-				}
+	for k, v := range item.Features {
+		if k != "" && v != "" {
+			if len(v) > 50 {
+				_, err = item.AddDatum(ctx, client, koi.DatumTypeTextarea, k, v)
+			} else {
+				_, err = item.AddDatum(ctx, client, koi.DatumTypeText, k, v)
 			}
-		}
-	}
-	for idx, pic := range item.PictureData {
-		// If item has picture data, add each as a datum
-		if pic.Filename != "" {
-			_, err = item.AddDatum(ctx, client, koi.DatumTypeImage, fmt.Sprintf("Picture %d", idx+1), pic.Filename)
-
 			if err != nil {
-				fmt.Printf("Failed to add picture datum for item %s: %v\n", item.Name, err)
+				fmt.Printf("Failed to add feature datum for item %s feature %s: %v\n", item.EbayID, k, err)
 				client.PrintError(ctx) // Print error details
 				return err
 			}
 		}
 	}
-	_, err = item.UploadImageByFile(ctx, client, item.PictureData[item.PhotoIndex].Filename, item.ID)
+
+	for idx, pic := range item.PictureData {
+		// If item has picture data, add each as a datum
+		if pic.Filename != "" {
+			_, err = item.AddDatum(ctx, client, koi.DatumTypeImage, fmt.Sprintf("Picture %d", idx+1), args.itemsDir+"/../"+pic.Filename)
+
+			if err != nil {
+				fmt.Printf("Failed to add picture datum for item %s: %v\n", item.EbayID, err)
+				client.PrintError(ctx) // Print error details
+				return err
+			}
+		}
+	}
+	_, err = item.UploadImageByFile(ctx, client, args.itemsDir+"/../"+item.PictureData[item.PhotoIndex].Filename, item.ID)
 	if err != nil {
-		fmt.Printf("Failed to upload image for item %s: %v\n", item.Name, err)
+		fmt.Printf("Failed to upload image for item %s: %v\n", item.EbayID, err)
 		client.PrintError(ctx)
 		return err
 	}
-	fmt.Printf("Successfully processed item %s with ID %s\n", item.Name, item.ID)
+	fmt.Printf("Successfully processed item %s with ID %s\n", item.EbayID, item.ID)
 	return nil
 }
 
@@ -244,7 +243,7 @@ func (item *Item) AddDatum(ctx context.Context, client koi.Client, datumType str
 		client.PrintError(ctx) // Print error details
 		return nil, err
 	}
-	fmt.Printf("Successfully added datum to item %s: %s\n", item.Name, datum.ID)
+	fmt.Printf("Successfully added datum to item %s: Type: %s, ID: %s, Label: %s\n", item.EbayID, datumType, datum.ID, datum.Label)
 	return datum, nil
 }
 
@@ -258,7 +257,7 @@ func processJSONFiles(dir string) ([]*Item, error) {
 		}
 
 		// Skip if not a directory or is the root directory
-		if !d.IsDir() || path == dir {
+		if !d.IsDir() || path == dir || strings.HasSuffix(path, ".git") {
 			return nil
 		}
 
@@ -311,6 +310,12 @@ func processJSONFiles(dir string) ([]*Item, error) {
 // If not found, it creates a new collection named "maps" and returns it.
 func findOrCreateCollection(ctx context.Context, client koi.Client, collectionName string) (*koi.Collection, error) {
 	// List collections to search for "maps"
+
+	if myCollection != (koi.Collection{}) {
+		if strings.ToLower(myCollection.Title) == strings.ToLower(collectionName) {
+			return &myCollection, nil
+		}
+	}
 	page := 1
 	for {
 		collections, err := client.ListCollections(ctx, page)
@@ -324,6 +329,7 @@ func findOrCreateCollection(ctx context.Context, client koi.Client, collectionNa
 		// Check each collection for "maps"
 		for _, collection := range collections {
 			if strings.ToLower(collection.Title) == strings.ToLower(collectionName) {
+				myCollection = *collection // Store the created collection for future use
 				return collection, nil
 			}
 		}
@@ -341,7 +347,8 @@ func findOrCreateCollection(ctx context.Context, client koi.Client, collectionNa
 	if err != nil {
 		return nil, fmt.Errorf("failed to create collection '%s': %w", collectionName, err)
 	}
-
+	myCollection = *created // Store the created collection for future use
+	fmt.Printf("Created new collection: %s (ID: %s)\n", created.Title, created.ID)
 	return created, nil
 }
 
