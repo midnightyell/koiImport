@@ -40,17 +40,13 @@ func main() {
 	// Define and parse command-line flags
 	//args := args{}
 	flag.BoolVar(&args.deleteFlag, "delete", false, "Delete all data from the server")
-	//flag.StringVar(&args.itemsDir, "itemsdir", "../dyn/items", "Directory to read items from")
 	flag.StringVar(&args.itemsDir, "itemsdir", "", "Directory to read items from")
 	flag.StringVar(&args.collectionName, "collection", collectionDefault, "Collection to use for items")
-	flag.StringVar(&args.user, "user", user, "Username for authentication")
-	flag.StringVar(&args.pass, "pass", pass, "Password for authentication")
-	flag.StringVar(&args.target, "target", target, "Target URL of the Koi server")
 	flag.Parse()
 
 	ctx := context.Background()
-	client := koi.NewHTTPClient(args.target, 30*time.Second)
-	_, err := client.CheckLogin(ctx, args.user, args.pass)
+	client := koi.NewHTTPClient("", 30*time.Second)
+	_, err := client.CheckLogin(ctx, "", "")
 	if err != nil {
 		fmt.Printf("Login failed: %v\n", err)
 		return
