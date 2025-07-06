@@ -25,7 +25,8 @@ type cliargs struct {
 	deleteFlag     bool
 	itemsDir       string
 	collectionName string
-	collection     koi.Collection
+	collection     *koi.Collection
+	verbose        bool
 }
 
 var args cliargs
@@ -34,15 +35,20 @@ func main() {
 	flag.BoolVar(&args.deleteFlag, "delete", false, "Delete all data from the server")
 	flag.StringVar(&args.itemsDir, "itemsdir", "", "Directory to read items from")
 	flag.StringVar(&args.collectionName, "collection", collectionDefault, "Collection to use for items")
+	flag.BoolVar(&args.verbose, "verbose", false, "Verbose output")
 	flag.Usage = usage
 	flag.Parse()
 
 	ctx := context.Background()
 	client := koi.NewHTTPClient("", 30*time.Second)
-	_, err := client.CheckLogin(ctx, "", "")
+	token, err := client.CheckLogin(ctx, "", "")
 	if err != nil {
 		fmt.Printf("Login failed: %v\n", err)
 		return
+	}
+
+	if args.verbose {
+		fmt.Printf("Token is %s\n", token)
 	}
 
 	// Delete all data if --delete flag is provided
@@ -56,12 +62,10 @@ func main() {
 		return
 	}
 
-	args.collection.Title = cases.Title(language.English, cases.Compact).String(args.collectionName)
-	collectionList, err := client.ListCollections(ctx)
-	for _, c := range collectionList {
-		if c.Title == args.collectionName {
-			args.collection = *c
-		}
+	args.collection, err = GetOrCreateCollection(ctx, client, args.collectionName)
+	if err != nil {
+		fmt.Printf("Failed getting/making collection %s\n", args.collectionName)
+		return
 	}
 
 	// todo check for more than 1 match
@@ -83,6 +87,8 @@ func main() {
 				fmt.Println("Skipping nil item")
 				continue
 			}
+			iri := args.collection.IRI()
+			item.Collection = &iri
 			err := addItemToKoi(ctx, client, item)
 			if err != nil {
 				fmt.Printf("Error processing item %s: %v\n", item.Name, err)
@@ -98,10 +104,6 @@ func main() {
 func addItemToKoi(ctx context.Context, client koi.Client, item *Item) error {
 
 	fmt.Printf("Adding item to koi: EbayID=%s, Name=%s\n", item.EbayID, item.Name)
-	collection := args.collection
-
-	fmt.Printf("Using collection: %s (ID: %s)\n", collection.Title, collection.ID)
-
 	createdItem, err := item.Create(ctx, client)
 	if err != nil {
 		fmt.Printf("Failed to create item %s: %v\n", item.Name, err)
@@ -323,4 +325,59 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "%s usage:\n", os.Args[0])
 	flag.PrintDefaults()
 	koi.Usage()
+}
+
+// PrintItemsSummary lists all items using ListItems, calls Summary on each, and pretty-prints the results.
+func PrintItemsSummary(ctx context.Context, client koi.Client) error {
+	// Call ListItems to retrieve all items
+	items, err := client.ListItems(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list items: %w", err)
+	}
+
+	// Print header
+	fmt.Printf("%-40s %-36s\n", "Name", "ID")
+	fmt.Println(strings.Repeat("-", 76))
+
+	// Call Summary on each item and print
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		fmt.Println(item.Summary())
+	}
+
+	return nil
+}
+
+func GetOrCreateCollection(ctx context.Context, client koi.Client, collectionName string) (*koi.Collection, error) {
+	// List all collections
+	collections, err := client.ListCollections(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list collections: %w", err)
+	}
+
+	// Search for case-insensitive match
+	target := strings.ToLower(collectionName)
+	for _, c := range collections {
+		if c == nil {
+			continue
+		}
+		if strings.ToLower(c.Title) == target {
+			return c, nil
+		}
+	}
+
+	// No match found, create new collection with initial caps title
+	title := cases.Title(language.English).String(collectionName)
+	newCollection := &koi.Collection{
+		Title:      title,
+		Visibility: koi.VisibilityPublic, // Default visibility
+	}
+	created, err := client.CreateCollection(ctx, newCollection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create collection %q: %w", title, err)
+	}
+
+	return created, nil
 }
