@@ -21,16 +21,17 @@ import (
 var user = "user"
 var pass = "Passw0rd"
 var target = "http://192.168.30.129"
-var myCollection koi.Collection
+var collectionDefault = "Maps"
 
 // args holds command-line arguments
 type cliargs struct {
-	deleteFlag bool
-	itemsDir   string
-	collection string
-	user       string
-	pass       string
-	target     string
+	deleteFlag     bool
+	itemsDir       string
+	collectionName string
+	collection     koi.Collection
+	user           string
+	pass           string
+	target         string
 }
 
 var args cliargs
@@ -41,15 +42,11 @@ func main() {
 	flag.BoolVar(&args.deleteFlag, "delete", false, "Delete all data from the server")
 	//flag.StringVar(&args.itemsDir, "itemsdir", "../dyn/items", "Directory to read items from")
 	flag.StringVar(&args.itemsDir, "itemsdir", "", "Directory to read items from")
-	flag.StringVar(&args.collection, "collection", "maps", "Collection to use for items")
+	flag.StringVar(&args.collectionName, "collection", collectionDefault, "Collection to use for items")
 	flag.StringVar(&args.user, "user", user, "Username for authentication")
 	flag.StringVar(&args.pass, "pass", pass, "Password for authentication")
 	flag.StringVar(&args.target, "target", target, "Target URL of the Koi server")
 	flag.Parse()
-
-	if args.collection != "" {
-		args.collection = cases.Title(language.English, cases.Compact).String(args.collection)
-	}
 
 	ctx := context.Background()
 	client := koi.NewHTTPClient(args.target, 30*time.Second)
@@ -68,6 +65,14 @@ func main() {
 		}
 		fmt.Println("All data deleted successfully")
 		return
+	}
+
+	args.collection.Title = cases.Title(language.English, cases.Compact).String(args.collectionName)
+	collectionList, err := client.ListCollections(ctx)
+	for _, c := range collectionList {
+		if c.Title == args.collectionName {
+			args.collection = *c
+		}
 	}
 
 	// todo check for more than 1 match
@@ -104,11 +109,8 @@ func main() {
 func addItemToKoi(ctx context.Context, client koi.Client, item *Item) error {
 
 	fmt.Printf("Adding item to koi: EbayID=%s, Name=%s\n", item.EbayID, item.Name)
-	collection, err := findOrCreateCollection(ctx, client, args.collection)
-	if item.Collection == nil {
-		iri := collection.IRI()
-		item.Collection = &iri
-	}
+	collection := args.collection
+
 	fmt.Printf("Using collection: %s (ID: %s)\n", collection.Title, collection.ID)
 
 	createdItem, err := item.Create(ctx, client)
@@ -304,52 +306,6 @@ func processJSONFiles(dir string) ([]*Item, error) {
 	}
 
 	return items, nil
-}
-
-// findOrCreateMapsCollection searches for a collection named "maps" and returns it.
-// If not found, it creates a new collection named "maps" and returns it.
-func findOrCreateCollection(ctx context.Context, client koi.Client, collectionName string) (*koi.Collection, error) {
-	// List collections to search for "maps"
-
-	if myCollection != (koi.Collection{}) {
-		if strings.ToLower(myCollection.Title) == strings.ToLower(collectionName) {
-			return &myCollection, nil
-		}
-	}
-	page := 1
-	for {
-		collections, err := client.ListCollections(ctx, page)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list collections on page %d: %w", page, err)
-		}
-		if len(collections) == 0 {
-			break // No more collections to check
-		}
-
-		// Check each collection for "maps"
-		for _, collection := range collections {
-			if strings.ToLower(collection.Title) == strings.ToLower(collectionName) {
-				myCollection = *collection // Store the created collection for future use
-				return collection, nil
-			}
-		}
-		page++
-	}
-
-	// Collection not found, create a new one
-	newCollection := &koi.Collection{
-		Title:      collectionName,
-		Visibility: koi.VisibilityPublic,
-		CreatedAt:  time.Now(),
-	}
-
-	created, err := client.CreateCollection(ctx, newCollection)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create collection '%s': %w", collectionName, err)
-	}
-	myCollection = *created // Store the created collection for future use
-	fmt.Printf("Created new collection: %s (ID: %s)\n", created.Title, created.ID)
-	return created, nil
 }
 
 func readIntFromFile(filePath string) (int, error) {
