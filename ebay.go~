@@ -1,7 +1,0 @@
-package main
-
-import ebay "github.com/smalloy/ebayApi"
-
-struct {
-
-} ebayConnection;}
