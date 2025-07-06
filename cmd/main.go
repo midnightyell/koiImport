@@ -18,9 +18,6 @@ import (
 	koi "gitea.local/smalloy/koiApi"
 )
 
-var user = "user"
-var pass = "Passw0rd"
-var target = "http://192.168.30.129"
 var collectionDefault = "Maps"
 
 // args holds command-line arguments
@@ -29,23 +26,16 @@ type cliargs struct {
 	itemsDir       string
 	collectionName string
 	collection     koi.Collection
-	user           string
-	pass           string
-	target         string
 }
 
 var args cliargs
 
 func main() {
-	// Define and parse command-line flags
-	//args := args{}
-	//fs := flag.NewFlagSet("koiImport", flag.ContinueOnError)
 	flag.BoolVar(&args.deleteFlag, "delete", false, "Delete all data from the server")
 	flag.StringVar(&args.itemsDir, "itemsdir", "", "Directory to read items from")
 	flag.StringVar(&args.collectionName, "collection", collectionDefault, "Collection to use for items")
-	//myArgs := filterArgs(fs, os.Args[1:])
+	flag.Usage = usage
 	flag.Parse()
-	//fs.SetOutput(io.Discard)
 
 	ctx := context.Background()
 	client := koi.NewHTTPClient("", 30*time.Second)
@@ -329,36 +319,8 @@ func readIntFromFile(filePath string) (int, error) {
 	return value, nil
 }
 
-// filterArgs removes arguments from myArgs whose flag names are not defined in fs.
-// Returns a new slice with only valid flags and non-flag arguments.
-func filterArgs(fs *flag.FlagSet, myArgs []string) []string {
-	// Map of valid flag names in fs
-	validFlags := make(map[string]bool)
-	fs.VisitAll(func(f *flag.Flag) {
-		validFlags[f.Name] = true
-	})
-
-	var filtered []string
-	skipNext := false
-	for i, arg := range myArgs {
-		if skipNext {
-			skipNext = false
-			continue
-		}
-		// Check if arg is a flag (starts with - or --)
-		if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
-			// Extract flag name (strip - or --, handle --flag=value)
-			flagName := strings.TrimPrefix(strings.TrimPrefix(arg, "--"), "-")
-			flagName = strings.Split(flagName, "=")[0]
-			if !validFlags[flagName] {
-				// Skip unrecognized flag and its value if separate (e.g., -flag value)
-				if i+1 < len(myArgs) && !strings.HasPrefix(myArgs[i+1], "-") && !strings.Contains(arg, "=") {
-					skipNext = true
-				}
-				continue
-			}
-		}
-		filtered = append(filtered, arg)
-	}
-	return filtered
+func usage() {
+	fmt.Fprintf(os.Stderr, "%s usage:\n", os.Args[0])
+	flag.PrintDefaults()
+	koi.Usage()
 }
