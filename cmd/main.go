@@ -27,6 +27,7 @@ type cliargs struct {
 	collectionName string
 	collection     *koi.Collection
 	verbose        bool
+	AllItems       []*koi.Item // All items in the collection
 }
 
 var args cliargs
@@ -41,7 +42,7 @@ func main() {
 
 	ctx := context.Background()
 	client := koi.NewHTTPClient("", 30*time.Second)
-	token, err := client.CheckLogin(ctx, "", "")
+	token, err := client.CheckLogin(ctx)
 	if err != nil {
 		fmt.Printf("Login failed: %v\n", err)
 		return
@@ -67,6 +68,16 @@ func main() {
 		fmt.Printf("Failed getting/making collection %s\n", args.collectionName)
 		return
 	}
+
+	AllItems, err := client.ListItems(ctx)
+	if err != nil {
+		fmt.Printf("Error listing items in collection %s: %v\n", args.collectionName, err)
+		return
+	}
+	args.AllItems = AllItems
+
+	PrintItems(AllItems)
+	return
 
 	// todo check for more than 1 match
 	// If itemsDir is provided, process items
