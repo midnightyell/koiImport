@@ -27,7 +27,7 @@ type cliargs struct {
 	collectionName string
 	collection     *koi.Collection
 	verbose        bool
-	AllItems       []*koi.Item // All items in the collection
+	KoiItems       []*koi.Item // All items in the collection
 }
 
 var args cliargs
@@ -69,14 +69,15 @@ func main() {
 		return
 	}
 
-	AllItems, err := client.ListItems(ctx)
+	KoiItems, err := client.ListItems(ctx)
 	if err != nil {
 		fmt.Printf("Error listing items in collection %s: %v\n", args.collectionName, err)
 		return
 	}
-	args.AllItems = AllItems
+	args.KoiItems = KoiItems
+	//for _, koiItem := range KoiItems
 
-	PrintItems(AllItems)
+	//PrintItems(AllItems)
 	return
 
 	// todo check for more than 1 match
